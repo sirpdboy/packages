@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # OpenWrt packages feed
 
 ## Description
@@ -24,3 +25,6 @@ See [LICENSE](LICENSE) file.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) file.
 
+=======
+# packages
+>>>>>>> 58a4b18a69e01049b79bdc68bfe4d1ad7d6eaeea
