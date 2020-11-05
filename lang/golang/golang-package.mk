@@ -89,7 +89,12 @@ include $(GO_INCLUDE_DIR)/golang-values.mk
 #
 #   Additional go tool link arguments to use when building targets.
 #
-#   e.g. GO_PKG_LDFLAGS:=-s -w
+#   Note that the OpenWrt build system has an option to strip binaries
+#   (enabled by default), so -s (Omit the symbol table and debug
+#   information) and -w (Omit the DWARF symbol table) flags are not
+#   necessary.
+#
+#   e.g. GO_PKG_LDFLAGS:=-r dir1:dir2 -u
 #
 #
 # GO_PKG_LDFLAGS_X - list of string variable definitions, default empty
@@ -107,19 +112,37 @@ include $(GO_INCLUDE_DIR)/golang-values.mk
 # for building packages, not user code
 GO_PKG_PATH:=/usr/share/gocode
 
-GO_PKG_BUILD_PKG?=$(GO_PKG)/...
+GO_PKG_BUILD_PKG?=$(strip $(GO_PKG))/...
 
 GO_PKG_WORK_DIR_NAME:=.go_work
-GO_PKG_WORK_DIR:=$(PKG_BUILD_DIR)/$(GO_PKG_WORK_DIR_NAME)
+GO_PKG_WORK_DIR=$(PKG_BUILD_DIR)/$(GO_PKG_WORK_DIR_NAME)
 
-GO_PKG_BUILD_DIR:=$(GO_PKG_WORK_DIR)/build
-GO_PKG_CACHE_DIR:=$(GO_PKG_WORK_DIR)/cache
-GO_PKG_TMP_DIR:=$(GO_PKG_WORK_DIR)/tmp
+GO_PKG_BUILD_DIR=$(GO_PKG_WORK_DIR)/build
+GO_PKG_CACHE_DIR=$(GO_PKG_WORK_DIR)/cache
 
-GO_PKG_BUILD_BIN_DIR:=$(GO_PKG_BUILD_DIR)/bin$(if \
-  $(GO_HOST_TARGET_DIFFERENT),/$(GO_OS)_$(GO_ARCH))
+GO_PKG_BUILD_BIN_DIR=$(GO_PKG_BUILD_DIR)/bin$(if $(GO_HOST_TARGET_DIFFERENT),/$(GO_OS_ARCH))
 
-GO_PKG_BUILD_DEPENDS_SRC:=$(STAGING_DIR)$(GO_PKG_PATH)/src
+GO_PKG_BUILD_DEPENDS_SRC=$(STAGING_DIR)$(GO_PKG_PATH)/src
+
+ifdef CONFIG_PKG_ASLR_PIE_ALL
+  ifeq ($(strip $(PKG_ASLR_PIE)),1)
+    ifeq ($(GO_TARGET_PIE_SUPPORTED),1)
+      GO_PKG_ENABLE_PIE:=1
+    else
+      $(warning PIE buildmode is not supported for $(GO_OS)/$(GO_ARCH))
+    endif
+  endif
+endif
+
+ifdef CONFIG_PKG_ASLR_PIE_REGULAR
+  ifeq ($(strip $(PKG_ASLR_PIE_REGULAR)),1)
+    ifeq ($(GO_TARGET_PIE_SUPPORTED),1)
+      GO_PKG_ENABLE_PIE:=1
+    else
+      $(warning PIE buildmode is not supported for $(GO_OS)/$(GO_ARCH))
+    endif
+  endif
+endif
 
 # sstrip causes corrupted section header size
 ifneq ($(CONFIG_USE_SSTRIP),)
@@ -129,16 +152,6 @@ ifneq ($(CONFIG_USE_SSTRIP),)
     GO_PKG_STRIP_ARGS:=--strip-all
   endif
   STRIP:=$(TARGET_CROSS)strip $(GO_PKG_STRIP_ARGS)
-  RSTRIP= \
-    export CROSS="$(TARGET_CROSS)" \
-		$(if $(PKG_BUILD_ID),KEEP_BUILD_ID=1) \
-		$(if $(CONFIG_KERNEL_KALLSYMS),NO_RENAME=1) \
-		$(if $(CONFIG_KERNEL_PROFILING),KEEP_SYMBOLS=1); \
-    NM="$(TARGET_CROSS)nm" \
-    STRIP="$(STRIP)" \
-    STRIP_KMOD="$(SCRIPT_DIR)/strip-kmod.sh" \
-    PATCHELF="$(STAGING_DIR_HOST)/bin/patchelf" \
-    $(SCRIPT_DIR)/rstrip.sh
 endif
 
 define GoPackage/GoSubMenu
@@ -147,7 +160,7 @@ define GoPackage/GoSubMenu
   CATEGORY:=Languages
 endef
 
-define GoPackage/Environment
+GO_PKG_TARGET_VARS= \
 	GOOS=$(GO_OS) \
 	GOARCH=$(GO_ARCH) \
 	GO386=$(GO_386) \
@@ -155,10 +168,46 @@ define GoPackage/Environment
 	GOMIPS=$(GO_MIPS) \
 	GOMIPS64=$(GO_MIPS64) \
 	CGO_ENABLED=1 \
+	CC=$(TARGET_CC) \
+	CXX=$(TARGET_CXX) \
 	CGO_CFLAGS="$(filter-out $(GO_CFLAGS_TO_REMOVE),$(TARGET_CFLAGS))" \
 	CGO_CPPFLAGS="$(TARGET_CPPFLAGS)" \
-	CGO_CXXFLAGS="$(filter-out $(GO_CFLAGS_TO_REMOVE),$(TARGET_CXXFLAGS))"
-endef
+	CGO_CXXFLAGS="$(filter-out $(GO_CFLAGS_TO_REMOVE),$(TARGET_CXXFLAGS))" \
+	CGO_LDFLAGS="$(TARGET_LDFLAGS)"
+
+GO_PKG_BUILD_VARS= \
+	GOPATH=$(GO_PKG_BUILD_DIR) \
+	GOCACHE=$(GO_PKG_CACHE_DIR) \
+	GOENV=off
+
+GO_PKG_DEFAULT_VARS= \
+	$(GO_PKG_TARGET_VARS) \
+	$(GO_PKG_BUILD_VARS)
+
+GO_PKG_VARS=$(GO_PKG_DEFAULT_VARS)
+
+# do not use for new code; this will be removed after the next OpenWrt release
+GoPackage/Environment=$(GO_PKG_VARS)
+
+GO_PKG_DEFAULT_LDFLAGS= \
+	-buildid '$(SOURCE_DATE_EPOCH)' \
+	-linkmode external \
+	-extldflags '$(patsubst -z%,-Wl$(comma)-z$(comma)%,$(TARGET_LDFLAGS))'
+
+GO_PKG_CUSTOM_LDFLAGS= \
+	$(GO_PKG_LDFLAGS) \
+	$(patsubst %,-X %,$(GO_PKG_LDFLAGS_X))
+
+GO_PKG_INSTALL_ARGS= \
+	-v \
+	-trimpath \
+	-ldflags "all=$(GO_PKG_DEFAULT_LDFLAGS)" \
+	$(if $(filter $(GO_PKG_ENABLE_PIE),1),-buildmode pie) \
+	$(if $(filter $(GO_ARCH),arm),-installsuffix "v$(GO_ARM)") \
+	$(if $(filter $(GO_ARCH),mips mipsle),-installsuffix "$(GO_MIPS)") \
+	$(if $(filter $(GO_ARCH),mips64 mips64le),-installsuffix "$(GO_MIPS64)") \
+	$(if $(GO_PKG_GCFLAGS),-gcflags "$(GO_PKG_GCFLAGS)") \
+	$(if $(GO_PKG_CUSTOM_LDFLAGS),-ldflags "$(GO_PKG_CUSTOM_LDFLAGS) $(GO_PKG_DEFAULT_LDFLAGS)")
 
 # false if directory does not exist
 GoPackage/is_dir_not_empty=$$$$($(FIND) $(1) -maxdepth 0 -type d \! -empty 2>/dev/null)
@@ -168,15 +217,14 @@ GoPackage/has_binaries=$(call GoPackage/is_dir_not_empty,$(GO_PKG_BUILD_BIN_DIR)
 define GoPackage/Build/Configure
 	( \
 		cd $(PKG_BUILD_DIR) ; \
-		mkdir -p $(GO_PKG_BUILD_DIR)/bin $(GO_PKG_BUILD_DIR)/src \
-			$(GO_PKG_CACHE_DIR) $(GO_PKG_TMP_DIR) ; \
+		mkdir -p $(GO_PKG_BUILD_DIR)/bin $(GO_PKG_BUILD_DIR)/src $(GO_PKG_CACHE_DIR) ; \
 		\
 		files=$$$$($(FIND) ./ \
 			-type d -a \( -path './.git' -o -path './$(GO_PKG_WORK_DIR_NAME)' \) -prune -o \
 			\! -type d -print | \
 			sed 's|^\./||') ; \
 		\
-		if [ "$(GO_PKG_INSTALL_ALL)" != 1 ]; then \
+		if [ "$(strip $(GO_PKG_INSTALL_ALL))" != 1 ]; then \
 			code=$$$$(echo "$$$$files" | grep '\.\(c\|cc\|cpp\|go\|h\|hh\|hpp\|proto\|s\)$$$$') ; \
 			testdata=$$$$(echo "$$$$files" | grep '\(^\|/\)testdata/') ; \
 			gomod=$$$$(echo "$$$$files" | grep '\(^\|/\)go\.\(mod\|sum\)$$$$') ; \
@@ -191,10 +239,10 @@ define GoPackage/Build/Configure
 		\
 		IFS=$$$$'\n' ; \
 		\
-		echo "Copying files from $(PKG_BUILD_DIR) into $(GO_PKG_BUILD_DIR)/src/$(GO_PKG)" ; \
+		echo "Copying files from $(PKG_BUILD_DIR) into $(GO_PKG_BUILD_DIR)/src/$(strip $(GO_PKG))" ; \
 		for file in $$$$files; do \
 			echo $$$$file ; \
-			dest=$(GO_PKG_BUILD_DIR)/src/$(GO_PKG)/$$$$file ; \
+			dest=$(GO_PKG_BUILD_DIR)/src/$(strip $(GO_PKG))/$$$$file ; \
 			mkdir -p $$$$(dirname $$$$dest) ; \
 			$(CP) $$$$file $$$$dest ; \
 		done ; \
@@ -215,8 +263,8 @@ define GoPackage/Build/Configure
 				base=$$$$(basename $$$$dir) ; \
 				if [ -d $$$$dest/$$$$base ]; then \
 					case $$$$dir in \
-					*$(GO_PKG_PATH)/src/$(GO_PKG)) \
-						echo "$(GO_PKG) is already installed. Please check for circular dependencies." ;; \
+					*$(GO_PKG_PATH)/src/$(strip $(GO_PKG))) \
+						echo "$(strip $(GO_PKG)) is already installed. Please check for circular dependencies." ;; \
 					*) \
 						link_contents $$$$src/$$$$base $$$$dest/$$$$base ;; \
 					esac ; \
@@ -227,7 +275,7 @@ define GoPackage/Build/Configure
 			done ; \
 		} ; \
 		\
-		if [ "$(GO_PKG_SOURCE_ONLY)" != 1 ]; then \
+		if [ "$(strip $(GO_PKG_SOURCE_ONLY))" != 1 ]; then \
 			if [ -d $(GO_PKG_BUILD_DEPENDS_SRC) ]; then \
 				echo "Symlinking directories from $(GO_PKG_BUILD_DEPENDS_SRC) into $(GO_PKG_BUILD_DIR)/src" ; \
 				link_contents $(GO_PKG_BUILD_DEPENDS_SRC) $(GO_PKG_BUILD_DIR)/src ; \
@@ -245,13 +293,7 @@ endef
 define GoPackage/Build/Compile
 	( \
 		cd $(GO_PKG_BUILD_DIR) ; \
-		export GOPATH=$(GO_PKG_BUILD_DIR) \
-			GOCACHE=$(GO_PKG_CACHE_DIR) \
-			GOTMPDIR=$(GO_PKG_TMP_DIR) \
-			GOROOT_FINAL=$(GO_TARGET_ROOT) \
-			CC=$(TARGET_CC) \
-			CXX=$(TARGET_CXX) \
-			$(call GoPackage/Environment) ; \
+		export $(GO_PKG_VARS) ; \
 		\
 		echo "Finding targets" ; \
 		targets=$$$$(go list $(GO_PKG_BUILD_PKG)) ; \
@@ -260,36 +302,15 @@ define GoPackage/Build/Compile
 		done ; \
 		echo ; \
 		\
-		if [ "$(GO_PKG_GO_GENERATE)" = 1 ]; then \
+		if [ "$(strip $(GO_PKG_GO_GENERATE))" = 1 ]; then \
 			echo "Calling go generate" ; \
 			go generate -v $(1) $$$$targets ; \
 			echo ; \
 		fi ; \
 		\
-		if [ "$(GO_PKG_SOURCE_ONLY)" != 1 ]; then \
+		if [ "$(strip $(GO_PKG_SOURCE_ONLY))" != 1 ]; then \
 			echo "Building targets" ; \
-			case $(GO_ARCH) in \
-			arm)             installsuffix="v$(GO_ARM)" ;; \
-			mips|mipsle)     installsuffix="$(GO_MIPS)" ;; \
-			mips64|mips64le) installsuffix="$(GO_MIPS64)" ;; \
-			esac ; \
-			trimpath="all=-trimpath=$(GO_PKG_BUILD_DIR)" ; \
-			ldflags="all=-linkmode external -extldflags '$(TARGET_LDFLAGS)'" ; \
-			pkg_gcflags="$(GO_PKG_GCFLAGS)" ; \
-			pkg_ldflags="$(GO_PKG_LDFLAGS)" ; \
-			for def in $(GO_PKG_LDFLAGS_X); do \
-				pkg_ldflags="$$$$pkg_ldflags -X $$$$def" ; \
-			done ; \
-			go install \
-				$$$${installsuffix:+-installsuffix $$$$installsuffix} \
-				-gcflags "$$$$trimpath" \
-				-asmflags "$$$$trimpath" \
-				-ldflags "$$$$ldflags" \
-				-v \
-				$$$${pkg_gcflags:+-gcflags "$$$$pkg_gcflags"} \
-				$$$${pkg_ldflags:+-ldflags "$$$$pkg_ldflags"} \
-				$(1) \
-				$$$$targets ; \
+			go install $(GO_PKG_INSTALL_ARGS) $(1) $$$$targets ; \
 			retval=$$$$? ; \
 			echo ; \
 			\
@@ -320,7 +341,7 @@ endef
 define GoPackage/Package/Install/Src
 	dir=$$$$(dirname $(GO_PKG)) ; \
 	$(INSTALL_DIR) $(1)$(GO_PKG_PATH)/src/$$$$dir ; \
-	$(CP) $(GO_PKG_BUILD_DIR)/src/$(GO_PKG) $(1)$(GO_PKG_PATH)/src/$$$$dir/
+	$(CP) $(GO_PKG_BUILD_DIR)/src/$(strip $(GO_PKG)) $(1)$(GO_PKG_PATH)/src/$$$$dir/
 endef
 
 define GoPackage/Package/Install
@@ -329,7 +350,7 @@ define GoPackage/Package/Install
 endef
 
 
-ifneq ($(GO_PKG),)
+ifneq ($(strip $(GO_PKG)),)
   Build/Configure=$(call GoPackage/Build/Configure)
   Build/Compile=$(call GoPackage/Build/Compile)
   Build/InstallDev=$(call GoPackage/Build/InstallDev,$(1))

@@ -4,10 +4,12 @@ PKG_NAME:=ariang
 PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
-PKG_SOURCE_URL:=https://github.com/mayswind/AriaNg-DailyBuild
-PKG_SOURCE_DATE:=2018-02-21
-PKG_SOURCE_VERSION:=f71a67cbb034aebcd076db3fadc1b9d8cdc470c7
-PKG_MIRROR_HASH:=13b07acbe29a68929295a82deb5a0122d8a56e328f783b6bc1efe9c72b99a702
+PKG_SOURCE_URL:=https://github.com/mayswind/AriaNg-DailyBuild.git
+PKG_VERSION:=1.1.7
+PKG_SOURCE_SUBDIR:=$(PKG_NAME)-$(PKG_VERSION)
+PKG_SOURCE_VERSION:=65a905a7974c5151aea34b36fc7cb9d2e6d8a330
+PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
+
 
 PKG_LICENSE:=MIT
 PKG_LICENSE_FILES:=LICENSE
@@ -21,7 +23,7 @@ define Package/ariang
   SUBMENU:=Download Manager
   DEPENDS:=+uhttpd +aria2
   TITLE:=AriaNg is a web frontend making aria2 easier to use.
-  URL:=https://github.com/mayswind/AriaNg
+  URL:=https://github.com/mayswind/ariaNg
   PKGARCH:=all
 endef
 

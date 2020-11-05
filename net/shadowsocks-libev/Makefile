@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2017-2019 Yousong Zhou <yszhou4tech@gmail.com>
+# Copyright (C) 2017-2020 Yousong Zhou <yszhou4tech@gmail.com>
 #
 # This is free software, licensed under the GNU General Public License v2.
 # See /LICENSE for more information.
@@ -13,12 +13,12 @@ include $(TOPDIR)/rules.mk
 # - check if default mode has changed from being tcp_only
 #
 PKG_NAME:=shadowsocks-libev
-PKG_VERSION:=3.3.1
-PKG_RELEASE:=3
+PKG_VERSION:=3.3.5
+PKG_RELEASE:=4
 
 PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_SOURCE_URL:=https://github.com/shadowsocks/shadowsocks-libev/releases/download/v$(PKG_VERSION)
-PKG_HASH:=afd25ae5e737be385fa53364c66095c354277e98cf141b54beb2be93d9228f4f
+PKG_HASH:=cfc8eded35360f4b67e18dc447b0c00cddb29cc57a3cec48b135e5fb87433488
 
 PKG_MAINTAINER:=Yousong Zhou <yszhou4tech@gmail.com>
 
@@ -42,11 +42,15 @@ define Package/shadowsocks-libev-config
   URL:=https://github.com/shadowsocks/shadowsocks-libev
 endef
 
+define Package/shadowsocks-libev-config/conffiles
+/etc/config/shadowsocks-libev
+endef
+
 define Package/shadowsocks-libev-config/install
-	#$(INSTALL_DIR) $(1)/etc/config
-	#$(INSTALL_DATA) ./files/shadowsocks-libev.config $(1)/etc/config/shadowsocks-libev
-	#$(INSTALL_DIR) $(1)/etc/init.d
-	#$(INSTALL_BIN) ./files/shadowsocks-libev.init $(1)/etc/init.d/shadowsocks-libev
+	$(INSTALL_DIR) $(1)/etc/config
+	$(INSTALL_DATA) ./files/shadowsocks-libev.config $(1)/etc/config/shadowsocks-libev
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) ./files/shadowsocks-libev.init $(1)/etc/init.d/shadowsocks-libev
 endef
 
 
@@ -57,7 +61,7 @@ define Package/shadowsocks-libev/Default
     SUBMENU:=Web Servers/Proxies
     TITLE:=shadowsocks-libev $(1)
     URL:=https://github.com/shadowsocks/shadowsocks-libev
-    DEPENDS:=+libev +libmbedtls +libpthread +libsodium +shadowsocks-libev-config $(DEPENDS_$(1))
+    DEPENDS:=+libev +libmbedtls +libpthread +libsodium $(DEPENDS_$(1))
   endef
 
   define Package/shadowsocks-libev-$(1)/install
@@ -85,7 +89,7 @@ define Package/shadowsocks-libev-ss-rules
   SUBMENU:=Web Servers/Proxies
   TITLE:=shadowsocks-libev ss-rules
   URL:=https://github.com/shadowsocks/shadowsocks-libev
-  DEPENDS:=+ip +ipset +iptables-mod-tproxy +resolveip +shadowsocks-libev-ss-redir +shadowsocks-libev-config
+  DEPENDS:=+ip +ipset +iptables-mod-tproxy +resolveip +shadowsocks-libev-ss-redir
 endef
 
 define Package/shadowsocks-libev-ss-rules/install
