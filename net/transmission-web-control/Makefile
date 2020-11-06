@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=transmission-web-control
-PKG_VERSION:=v1.6.1-update1
+PKG_VERSION:=v1.6.1
 PKG_RELEASE:=1
 
 PKG_SOURCE_PROTO:=git
